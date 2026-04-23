@@ -31,11 +31,12 @@ type Health struct {
 }
 
 type Config struct {
-	Server         Server                 `yaml:"server"`
-	Logging        map[string]interface{} `yaml:"logging"`
-	RateLimit      map[string]interface{} `yaml:"rate_limit"`
-	CircuitBreaker map[string]interface{} `yaml:"circuit_breaker"`
-	Health         Health                 `yaml:"health"`
+	Server          Server                 `yaml:"server"`
+	Logging         map[string]interface{} `yaml:"logging"`
+	RateLimit       map[string]interface{} `yaml:"rate_limit"`
+	CircuitBreaker  map[string]interface{} `yaml:"circuit_breaker"`
+	Health          Health                 `yaml:"health"`
+	MediaServiceURL string                 `yaml:"media_service_url"`
 }
 
 // Load reads a YAML config file, expands environment variables, and returns the parsed config.

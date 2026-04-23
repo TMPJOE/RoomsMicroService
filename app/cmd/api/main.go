@@ -61,9 +61,10 @@ func main() {
 
 	//repo creation
 	r := repo.NewDatabaseRepo(db)
+	roomRepo := repo.NewRoomRepo(db)
 
 	//service creation
-	svc := service.New(l, r)
+	svc := service.New(l, r, roomRepo)
 
 	// handler creation
 	jwtConfig := handler.JWTConfig{
