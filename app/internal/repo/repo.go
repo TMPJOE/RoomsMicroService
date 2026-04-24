@@ -9,12 +9,9 @@ import (
 	"hotel.com/app/internal/models"
 )
 
-type ServiceRepository interface {
-	DbPing() error
-}
-
 // RoomRepository defines the interface for room data access
 type RoomRepository interface {
+	DbPing() error
 	// CRUD operations
 	CreateRoom(ctx context.Context, room *models.Room) error
 	GetRoomByID(ctx context.Context, id string) (*models.Room, error)

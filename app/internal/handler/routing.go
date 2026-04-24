@@ -37,10 +37,10 @@ func (h *Handler) NewServerMux(rateLimiter *RateLimiter) *chi.Mux {
 		r.Get("/ready", h.readinessCheck)
 
 		// Room routes - public read access
+		r.Get("/rooms/available", h.CheckAvailability)
 		r.Get("/rooms", h.ListRooms)
 		r.Get("/rooms/{id}", h.GetRoom)
 		r.Get("/hotels/{hotel_id}/rooms", h.ListRoomsByHotel)
-		r.Get("/rooms/available", h.CheckAvailability)
 	})
 
 	// Protected routes - require JWT authentication

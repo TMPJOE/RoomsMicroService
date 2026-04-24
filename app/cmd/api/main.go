@@ -54,15 +54,14 @@ func main() {
 	}
 
 	//repo creation
-	r := repo.NewDatabaseRepo(db)
 	roomRepo := repo.NewRoomRepo(db)
 
 	//service creation
-	svc := service.New(l, r, roomRepo)
+	svc := service.New(l, roomRepo)
 
 	// handler creation
 	jwtConfig := handler.JWTConfig{
-		Issuer:     "blueprint-service",
+		Issuer:     "users-service",
 		Expiration: 24 * time.Minute,
 	}
 	jwtAuth := handler.NewJWTAuthenticator(jwtConfig, publicKeyPath)

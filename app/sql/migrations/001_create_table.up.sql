@@ -1,24 +1,20 @@
--- Migration: Create rooms table
--- Description: Creates the rooms table for managing room inventory
-
 CREATE TABLE IF NOT EXISTS rooms (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    hotel_id UUID NOT NULL,
-    name VARCHAR(255) NOT NULL,
-    type VARCHAR(50) NOT NULL,
-    price DECIMAL(10, 2) NOT NULL,
-    capacity INTEGER NOT NULL,
-    description TEXT,
-    space_info VARCHAR(255),
-    bed_distribution VARCHAR(255),
-    quantity INTEGER NOT NULL DEFAULT 1,
-    highlighted_amenities JSONB,
-    amenity_categories TEXT,
-    amenity_count INTEGER DEFAULT 0,
-    recommendation_coef DECIMAL(10, 4) DEFAULT 0,
-    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT fk_rooms_hotel FOREIGN KEY (hotel_id) REFERENCES hotels(id) ON DELETE CASCADE
+id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+hotel_id UUID NOT NULL,
+name VARCHAR(255) NOT NULL,
+type VARCHAR(50) NOT NULL,
+price DECIMAL(10, 2) NOT NULL,
+capacity INTEGER NOT NULL,
+description TEXT,
+space_info VARCHAR(255),
+bed_distribution VARCHAR(255),
+quantity INTEGER NOT NULL DEFAULT 1,
+highlighted_amenities JSONB,
+amenity_categories TEXT,
+amenity_count INTEGER DEFAULT 0,
+recommendation_coef DECIMAL(10, 4) DEFAULT 0,
+created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Indexes for filtering and performance

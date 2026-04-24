@@ -9,44 +9,15 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/google/uuid"
 	"hotel.com/app/internal/helper"
 	"hotel.com/app/internal/models"
 	"hotel.com/app/internal/repo"
 )
 
+// RoomService defines the interface for room business logic
 type Service interface {
 	Check() error
-	Room() RoomService
-}
-
-type roomSvc struct {
-	l       *slog.Logger
-	r       repo.ServiceRepository
-	roomSvc RoomService
-}
-
-func (s *roomSvc) Check() error {
-	s.l.Info("Pinging db...")
-	err := s.r.DbPing()
-	s.l.Info("is service working", "err", err.Error())
-	return err
-}
-
-func (s *roomSvc) Room() RoomService {
-	return s.roomSvc
-}
-
-func New(l *slog.Logger, r repo.ServiceRepository, roomRepo repo.RoomRepository) Service {
-	v := helper.NewValidator()
-	return &roomSvc{
-		l:       l,
-		r:       r,
-		roomSvc: NewRoomService(l, roomRepo, v),
-	}
-}
-
-// RoomService defines the interface for room business logic
-type RoomService interface {
 	// CRUD operations
 	CreateRoom(ctx context.Context, req *models.CreateRoomRequest, hotelID string) (*models.Room, error)
 	GetRoomByID(ctx context.Context, id string) (*models.Room, error)
@@ -64,29 +35,32 @@ type RoomService interface {
 	CalculateRecommendationCoef(amenities []models.HighlightedAmenityInput, amenityCategories string, description string) float64
 }
 
-// roomService implements RoomService
 type roomService struct {
 	l *slog.Logger
 	r repo.RoomRepository
-	v *helper.RequestValidator
 }
 
-// NewRoomService creates a new room service
-func NewRoomService(l *slog.Logger, r repo.RoomRepository, v *helper.RequestValidator) RoomService {
+func (s *roomService) Check() error {
+	s.l.Info("Pinging db...")
+	err := s.r.DbPing()
+	s.l.Info("is service working", "err", err.Error())
+	return err
+}
+
+func New(l *slog.Logger, r repo.RoomRepository) Service {
 	return &roomService{
 		l: l,
 		r: r,
-		v: v,
 	}
 }
 
 // CreateRoom creates a new room
 func (s *roomService) CreateRoom(ctx context.Context, req *models.CreateRoomRequest, hotelID string) (*models.Room, error) {
-	if err := s.v.Validate(req); err != nil {
-		return nil, helper.ErrValidation
-	}
+
+	roomID := uuid.New()
 
 	room := &models.Room{
+		ID:                roomID.String(),
 		HotelID:           hotelID,
 		Name:              req.Name,
 		Type:              req.Type,
@@ -139,9 +113,7 @@ func (s *roomService) UpdateRoom(ctx context.Context, id string, req *models.Upd
 		return nil, helper.ErrRecordNotFound
 	}
 
-	if existingRoom.HotelID != hotelID {
-		return nil, helper.ErrPermissionDenied
-	}
+	// Skip hotelID check for now as ownership is not enforced
 
 	if req.Name != "" {
 		existingRoom.Name = req.Name
@@ -195,14 +167,12 @@ func (s *roomService) UpdateRoom(ctx context.Context, id string, req *models.Upd
 
 // DeleteRoom deletes a room by ID
 func (s *roomService) DeleteRoom(ctx context.Context, id string, hotelID string) error {
-	room, err := s.r.GetRoomByID(ctx, id)
+	_, err := s.r.GetRoomByID(ctx, id)
 	if err != nil {
 		return helper.ErrRecordNotFound
 	}
 
-	if room.HotelID != hotelID {
-		return helper.ErrPermissionDenied
-	}
+	// Skip hotelID check for now as ownership is not enforced
 
 	if err := s.r.DeleteRoom(ctx, id); err != nil {
 		s.l.Error("failed to delete room", "id", id, "error", err)

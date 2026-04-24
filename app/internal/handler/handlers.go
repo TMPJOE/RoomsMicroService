@@ -66,7 +66,7 @@ func (h *Handler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room, err := h.s.Room().CreateRoom(r.Context(), &req, claims.UserID)
+	room, err := h.s.CreateRoom(r.Context(), &req, req.HotelID)
 	if err != nil {
 		h.l.Error("failed to create room", "error", err)
 		if err == helper.ErrValidation {
@@ -90,7 +90,7 @@ func (h *Handler) GetRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room, err := h.s.Room().GetRoomByID(r.Context(), id)
+	room, err := h.s.GetRoomByID(r.Context(), id)
 	if err != nil {
 		if err == helper.ErrRecordNotFound {
 			helper.RespondError(w, http.StatusNotFound, helper.ErrRecordNotFound.Error())
@@ -125,7 +125,7 @@ func (h *Handler) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	room, err := h.s.Room().UpdateRoom(r.Context(), id, &req, claims.UserID)
+	room, err := h.s.UpdateRoom(r.Context(), id, &req, claims.UserID)
 	if err != nil {
 		if err == helper.ErrRecordNotFound {
 			helper.RespondError(w, http.StatusNotFound, helper.ErrRecordNotFound.Error())
@@ -158,7 +158,7 @@ func (h *Handler) DeleteRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.s.Room().DeleteRoom(r.Context(), id, claims.UserID)
+	err := h.s.DeleteRoom(r.Context(), id, claims.UserID)
 	if err != nil {
 		if err == helper.ErrRecordNotFound {
 			helper.RespondError(w, http.StatusNotFound, helper.ErrRecordNotFound.Error())
@@ -196,7 +196,7 @@ func (h *Handler) ListRooms(w http.ResponseWriter, r *http.Request) {
 		filter.Types = strings.Split(typeParam, ",")
 	}
 
-	rooms, total, err := h.s.Room().ListRooms(r.Context(), filter)
+	rooms, total, err := h.s.ListRooms(r.Context(), filter)
 	if err != nil {
 		h.l.Error("failed to list rooms", "error", err)
 		helper.RespondError(w, http.StatusInternalServerError, helper.ErrInternalServer.Error())
@@ -220,11 +220,16 @@ func (h *Handler) ListRoomsByHotel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rooms, err := h.s.Room().ListRoomsByHotel(r.Context(), hotelID)
+	rooms, err := h.s.ListRoomsByHotel(r.Context(), hotelID)
 	if err != nil {
-		h.l.Error("failed to list rooms by hotel", "hotel_id", hotelID, "error", err)
-		helper.RespondError(w, http.StatusInternalServerError, helper.ErrInternalServer.Error())
-		return
+		if err == helper.ErrRecordNotFound {
+			h.l.Warn("hotel not found, returning empty rooms list", "hotel_id", hotelID)
+			rooms = []models.Room{}
+		} else {
+			h.l.Error("failed to list rooms by hotel", "hotel_id", hotelID, "error", err)
+			helper.RespondError(w, http.StatusInternalServerError, helper.ErrInternalServer.Error())
+			return
+		}
 	}
 
 	response := models.RoomListResponse{
@@ -254,7 +259,7 @@ func (h *Handler) CheckAvailability(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	rooms, err := h.s.Room().CheckAvailability(r.Context(), hotelID, checkIn, checkOut, quantity)
+	rooms, err := h.s.CheckAvailability(r.Context(), hotelID, checkIn, checkOut, quantity)
 	if err != nil {
 		h.l.Error("failed to check availability", "hotel_id", hotelID, "error", err)
 		helper.RespondError(w, http.StatusInternalServerError, helper.ErrInternalServer.Error())
@@ -294,7 +299,7 @@ func (h *Handler) UpdateRoomQuantity(w http.ResponseWriter, r *http.Request) {
 		Quantity: req.Quantity,
 	}
 
-	room, err := h.s.Room().UpdateRoom(r.Context(), id, updateReq, claims.UserID)
+	room, err := h.s.UpdateRoom(r.Context(), id, updateReq, claims.UserID)
 	if err != nil {
 		if err == helper.ErrRecordNotFound {
 			helper.RespondError(w, http.StatusNotFound, helper.ErrRecordNotFound.Error())

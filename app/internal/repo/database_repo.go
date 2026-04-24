@@ -13,21 +13,6 @@ import (
 	"hotel.com/app/internal/models"
 )
 
-type databaseRepo struct {
-	db *pgxpool.Pool
-}
-
-func NewDatabaseRepo(conn *pgxpool.Pool) ServiceRepository {
-	return &databaseRepo{
-		db: conn,
-	}
-}
-
-func (dbr *databaseRepo) DbPing() error {
-	err := dbr.db.Ping(context.Background())
-	return err
-}
-
 type roomRepo struct {
 	db *pgxpool.Pool
 }
@@ -36,6 +21,11 @@ func NewRoomRepo(db *pgxpool.Pool) RoomRepository {
 	return &roomRepo{
 		db: db,
 	}
+}
+
+func (dbr *roomRepo) DbPing() error {
+	err := dbr.db.Ping(context.Background())
+	return err
 }
 
 func (r *roomRepo) CreateRoom(ctx context.Context, room *models.Room) error {

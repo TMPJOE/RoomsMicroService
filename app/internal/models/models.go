@@ -36,6 +36,7 @@ type HighlightedAmenity struct {
 
 // CreateRoomRequest represents the request to create a room
 type CreateRoomRequest struct {
+	HotelID              string                    `json:"hotel_id" validate:"required"`
 	Name                 string                    `json:"name" validate:"required"`
 	Type                 string                    `json:"type" validate:"required,oneof=Single Double Double/Double Suite"`
 	Price                float64                   `json:"price" validate:"required,gt=0"`
