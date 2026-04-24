@@ -194,17 +194,14 @@ type JWTAuthenticator struct {
 }
 
 // NewJWTAuthenticator creates a new JWT authenticator
-func NewJWTAuthenticator(config JWTConfig, privateKeyPath, publicKeyPath string) *JWTAuthenticator {
+func NewJWTAuthenticator(config JWTConfig, publicKeyPath string) *JWTAuthenticator {
 	publicKeyData, _ := os.ReadFile(publicKeyPath)
-	privateKeyData, _ := os.ReadFile(privateKeyPath)
 
-	privateKey, _ := jwt.ParseRSAPrivateKeyFromPEM(privateKeyData)
 	publicKey, _ := jwt.ParseRSAPublicKeyFromPEM(publicKeyData)
 
 	return &JWTAuthenticator{
-		config:     config,
-		publicKey:  map[string]*rsa.PublicKey{"key-1": publicKey},
-		privateKey: privateKey,
+		config:    config,
+		publicKey: map[string]*rsa.PublicKey{"key-1": publicKey},
 	}
 }
 
