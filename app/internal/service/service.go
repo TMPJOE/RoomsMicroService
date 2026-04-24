@@ -4,12 +4,15 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"strings"
 
 	"github.com/google/uuid"
+	"hotel.com/app/internal/client"
 	"hotel.com/app/internal/helper"
 	"hotel.com/app/internal/models"
 	"hotel.com/app/internal/repo"
@@ -19,9 +22,9 @@ import (
 type Service interface {
 	Check() error
 	// CRUD operations
-	CreateRoom(ctx context.Context, req *models.CreateRoomRequest, hotelID string) (*models.Room, error)
+	CreateRooms(ctx context.Context, req *models.CreateRoomRequest, hotelID string, files []models.FileUpload) ([]*models.Room, error)
 	GetRoomByID(ctx context.Context, id string) (*models.Room, error)
-	UpdateRoom(ctx context.Context, id string, req *models.UpdateRoomRequest, hotelID string) (*models.Room, error)
+	UpdateRoom(ctx context.Context, id string, req *models.UpdateRoomRequest, hotelID string, files []models.FileUpload) (*models.Room, error)
 	DeleteRoom(ctx context.Context, id string, hotelID string) error
 
 	// Query operations
@@ -29,15 +32,19 @@ type Service interface {
 	ListRoomsByHotel(ctx context.Context, hotelID string) ([]models.Room, error)
 
 	// Availability
-	CheckAvailability(ctx context.Context, hotelID string, checkIn, checkOut string, quantity int) ([]models.Room, error)
+	CheckAvailability(ctx context.Context, hotelID, roomType, name string) (*models.AvailabilityResponse, error)
+
+	// Quantity operations
+	UpdateRoomQuantity(ctx context.Context, hotelID, roomType, name string, quantity int) error
 
 	// Amenity operations
 	CalculateRecommendationCoef(amenities []models.HighlightedAmenityInput, amenityCategories string, description string) float64
 }
 
 type roomService struct {
-	l *slog.Logger
-	r repo.RoomRepository
+	l  *slog.Logger
+	r  repo.RoomRepository
+	mc client.MediaClient
 }
 
 func (s *roomService) Check() error {
@@ -47,52 +54,70 @@ func (s *roomService) Check() error {
 	return err
 }
 
-func New(l *slog.Logger, r repo.RoomRepository) Service {
+func New(l *slog.Logger, r repo.RoomRepository, mc client.MediaClient) Service {
 	return &roomService{
-		l: l,
-		r: r,
+		l:  l,
+		r:  r,
+		mc: mc,
 	}
 }
 
-// CreateRoom creates a new room
-func (s *roomService) CreateRoom(ctx context.Context, req *models.CreateRoomRequest, hotelID string) (*models.Room, error) {
-
-	roomID := uuid.New()
-
-	room := &models.Room{
-		ID:                roomID.String(),
-		HotelID:           hotelID,
-		Name:              req.Name,
-		Type:              req.Type,
-		Price:             req.Price,
-		Capacity:          req.Capacity,
-		Description:       req.Description,
-		SpaceInfo:         req.SpaceInfo,
-		BedDistribution:   req.BedDistribution,
-		Quantity:          req.Quantity,
-		AmenityCategories: req.AmenityCategories,
-	}
-
-	if req.HighlightedAmenities != nil {
-		amenitiesJSON, err := s.convertAmenitiesToJSON(req.HighlightedAmenities)
-		if err != nil {
-			return nil, helper.ErrInternalServer
-		}
-		room.HighlightedAmenities = amenitiesJSON
-	}
-
+// CreateRooms creates multiple rooms based on the Quantity field
+func (s *roomService) CreateRooms(ctx context.Context, req *models.CreateRoomRequest, hotelID string, files []models.FileUpload) ([]*models.Room, error) {
+	// Calculate recommendation coefficient once for all rooms
 	amenityCount := s.countAmenitiesFromDescription(req.Description)
 	recommendationCoef := s.CalculateRecommendationCoef(req.HighlightedAmenities, req.AmenityCategories, req.Description)
 
-	room.AmenityCount = amenityCount
-	room.RecommendationCoef = recommendationCoef
+	// Prepare highlighted amenities JSON
+	var highlightedAmenitiesJSON []byte
+	if req.HighlightedAmenities != nil {
+		var err error
+		highlightedAmenitiesJSON, err = s.convertAmenitiesToJSON(req.HighlightedAmenities)
+		if err != nil {
+			return nil, helper.ErrInternalServer
+		}
+	}
 
-	if err := s.r.CreateRoom(ctx, room); err != nil {
-		s.l.Error("failed to create room", "error", err)
+	// Create room objects
+	rooms := make([]*models.Room, req.Quantity)
+	for i := 0; i < req.Quantity; i++ {
+		roomID := uuid.New().String()
+		rooms[i] = &models.Room{
+			ID:                   roomID,
+			HotelID:              hotelID,
+			Name:                 req.Name,
+			Type:                 req.Type,
+			Price:                req.Price,
+			Capacity:             req.Capacity,
+			Description:          req.Description,
+			SpaceInfo:            req.SpaceInfo,
+			BedDistribution:      req.BedDistribution,
+			Quantity:             req.Quantity,
+			HighlightedAmenities: highlightedAmenitiesJSON,
+			AmenityCategories:    req.AmenityCategories,
+			AmenityCount:         amenityCount,
+			RecommendationCoef:   recommendationCoef,
+		}
+	}
+
+	// Save all rooms to database
+	if err := s.r.CreateRooms(ctx, rooms); err != nil {
+		s.l.Error("failed to create rooms", "error", err)
 		return nil, helper.ErrCreateFailed
 	}
 
-	return room, nil
+	// Upload files to media service (associate with the first room as representative)
+	if len(files) > 0 && len(rooms) > 0 {
+		for _, file := range files {
+			_, err := s.mc.UploadFile(ctx, bytes.NewReader(file.Content), file.Filename, "room", rooms[0].ID, file.ContentType)
+			if err != nil {
+				s.l.Error("failed to upload file to media service", "error", err, "filename", file.Filename)
+				// Don't return error, just log it - room is already created
+			}
+		}
+	}
+
+	return rooms, nil
 }
 
 // GetRoomByID retrieves a room by ID
@@ -107,13 +132,11 @@ func (s *roomService) GetRoomByID(ctx context.Context, id string) (*models.Room,
 }
 
 // UpdateRoom updates an existing room
-func (s *roomService) UpdateRoom(ctx context.Context, id string, req *models.UpdateRoomRequest, hotelID string) (*models.Room, error) {
+func (s *roomService) UpdateRoom(ctx context.Context, id string, req *models.UpdateRoomRequest, hotelID string, files []models.FileUpload) (*models.Room, error) {
 	existingRoom, err := s.r.GetRoomByID(ctx, id)
 	if err != nil {
 		return nil, helper.ErrRecordNotFound
 	}
-
-	// Skip hotelID check for now as ownership is not enforced
 
 	if req.Name != "" {
 		existingRoom.Name = req.Name
@@ -151,6 +174,7 @@ func (s *roomService) UpdateRoom(ctx context.Context, id string, req *models.Upd
 		existingRoom.HighlightedAmenities = amenitiesJSON
 	}
 
+	// Recalculate recommendation coefficient
 	amenityCount := s.countAmenitiesFromDescription(existingRoom.Description)
 	recommendationCoef := s.calculateCoefFromAmenities(req.HighlightedAmenities, req.AmenityCategories, amenityCount)
 
@@ -162,6 +186,17 @@ func (s *roomService) UpdateRoom(ctx context.Context, id string, req *models.Upd
 		return nil, helper.ErrUpdateFailed
 	}
 
+	// Upload new files to media service if provided
+	if len(files) > 0 {
+		for _, file := range files {
+			_, err := s.mc.UploadFile(ctx, bytes.NewReader(file.Content), file.Filename, "room", existingRoom.ID, file.ContentType)
+			if err != nil {
+				s.l.Error("failed to upload file to media service", "error", err, "filename", file.Filename)
+				// Don't return error, just log it - room is already updated
+			}
+		}
+	}
+
 	return existingRoom, nil
 }
 
@@ -171,8 +206,6 @@ func (s *roomService) DeleteRoom(ctx context.Context, id string, hotelID string)
 	if err != nil {
 		return helper.ErrRecordNotFound
 	}
-
-	// Skip hotelID check for now as ownership is not enforced
 
 	if err := s.r.DeleteRoom(ctx, id); err != nil {
 		s.l.Error("failed to delete room", "id", id, "error", err)
@@ -204,15 +237,28 @@ func (s *roomService) ListRoomsByHotel(ctx context.Context, hotelID string) ([]m
 	return rooms, nil
 }
 
-// CheckAvailability checks room availability
-func (s *roomService) CheckAvailability(ctx context.Context, hotelID string, checkIn, checkOut string, quantity int) ([]models.Room, error) {
-	rooms, err := s.r.CheckAvailability(ctx, hotelID, checkIn, checkOut, quantity)
+// CheckAvailability checks room availability by type and name
+func (s *roomService) CheckAvailability(ctx context.Context, hotelID, roomType, name string) (*models.AvailabilityResponse, error) {
+	count, err := s.r.CheckAvailabilityByType(ctx, hotelID, roomType, name)
 	if err != nil {
 		s.l.Error("failed to check availability", "hotel_id", hotelID, "error", err)
 		return nil, helper.ErrFetchFailed
 	}
 
-	return rooms, nil
+	return &models.AvailabilityResponse{
+		Available: count > 0,
+		Count:     count,
+	}, nil
+}
+
+// UpdateRoomQuantity updates the quantity of rooms matching hotel, type and name
+func (s *roomService) UpdateRoomQuantity(ctx context.Context, hotelID, roomType, name string, quantity int) error {
+	if err := s.r.UpdateRoomQuantity(ctx, hotelID, roomType, name, quantity); err != nil {
+		s.l.Error("failed to update room quantity", "hotel_id", hotelID, "error", err)
+		return helper.ErrUpdateFailed
+	}
+
+	return nil
 }
 
 // CalculateRecommendationCoef calculates the recommendation coefficient
@@ -325,4 +371,9 @@ func (s *roomService) convertAmenitiesToJSON(amenities []models.HighlightedAmeni
 	}
 
 	return json.Marshal(jsonAmenities)
+}
+
+// Helper to convert io.ReadCloser to bytes (if needed)
+func readAll(r io.Reader) ([]byte, error) {
+	return io.ReadAll(r)
 }

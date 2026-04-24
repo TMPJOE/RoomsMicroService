@@ -34,8 +34,9 @@ type JWTConfig struct {
 
 // JWTClaims represents the JWT claims structure
 type JWTClaims struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
+	UserID   string `json:"user_id"`
+	Email    string `json:"email"`
+	UserType string `json:"user_type"`
 	jwt.RegisteredClaims
 }
 

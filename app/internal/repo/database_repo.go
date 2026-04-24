@@ -30,13 +30,13 @@ func (dbr *roomRepo) DbPing() error {
 
 func (r *roomRepo) CreateRoom(ctx context.Context, room *models.Room) error {
 	query := `
-	INSERT INTO rooms (
-	id, hotel_id, name, type, price, capacity, description,
-	space_info, bed_distribution, quantity, highlighted_amenities,
-	amenity_categories, amenity_count, recommendation_coef,
-	created_at, updated_at
-	) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-	`
+INSERT INTO rooms (
+id, hotel_id, name, type, price, capacity, description,
+space_info, bed_distribution, quantity, highlighted_amenities,
+amenity_categories, amenity_count, recommendation_coef,
+created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+`
 
 	var highlightedAmenitiesJSON []byte
 	if len(room.HighlightedAmenities) > 0 {
@@ -71,6 +71,58 @@ func (r *roomRepo) CreateRoom(ctx context.Context, room *models.Room) error {
 	}
 
 	return nil
+}
+
+func (r *roomRepo) CreateRooms(ctx context.Context, rooms []*models.Room) error {
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return helper.MapError(err)
+	}
+	defer tx.Rollback(ctx)
+
+	query := `
+INSERT INTO rooms (
+id, hotel_id, name, type, price, capacity, description,
+space_info, bed_distribution, quantity, highlighted_amenities,
+amenity_categories, amenity_count, recommendation_coef,
+created_at, updated_at
+) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
+`
+
+	for _, room := range rooms {
+		var highlightedAmenitiesJSON []byte
+		if len(room.HighlightedAmenities) > 0 {
+			var err error
+			highlightedAmenitiesJSON, err = json.Marshal(room.HighlightedAmenities)
+			if err != nil {
+				return helper.ErrInternalServer
+			}
+		}
+
+		_, err := tx.Exec(ctx, query,
+			room.ID,
+			room.HotelID,
+			room.Name,
+			room.Type,
+			room.Price,
+			room.Capacity,
+			room.Description,
+			room.SpaceInfo,
+			room.BedDistribution,
+			room.Quantity,
+			highlightedAmenitiesJSON,
+			room.AmenityCategories,
+			room.AmenityCount,
+			room.RecommendationCoef,
+			room.CreatedAt,
+			room.UpdatedAt,
+		)
+		if err != nil {
+			return helper.MapError(err)
+		}
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *roomRepo) GetRoomByID(ctx context.Context, id string) (*models.Room, error) {
@@ -302,14 +354,14 @@ func (r *roomRepo) GetRoomsByFilters(ctx context.Context, filter *models.FilterR
 
 func (r *roomRepo) CheckAvailability(ctx context.Context, hotelID string, checkIn, checkOut string, quantity int) ([]models.Room, error) {
 	query := `
-	SELECT id, hotel_id, name, type, price, capacity, description,
-	space_info, bed_distribution, quantity, highlighted_amenities,
-	amenity_categories, amenity_count, recommendation_coef,
-	created_at, updated_at
-	FROM rooms
-	WHERE hotel_id = $1 AND quantity >= $2
-	ORDER BY recommendation_coef DESC, price ASC
-	`
+SELECT id, hotel_id, name, type, price, capacity, description,
+space_info, bed_distribution, quantity, highlighted_amenities,
+amenity_categories, amenity_count, recommendation_coef,
+created_at, updated_at
+FROM rooms
+WHERE hotel_id = $1 AND quantity >= $2
+ORDER BY recommendation_coef DESC, price ASC
+`
 
 	rows, err := r.db.Query(ctx, query, hotelID, quantity)
 	if err != nil {
@@ -323,6 +375,38 @@ func (r *roomRepo) CheckAvailability(ctx context.Context, hotelID string, checkI
 	}
 
 	return rooms, nil
+}
+
+func (r *roomRepo) CheckAvailabilityByType(ctx context.Context, hotelID, roomType, name string) (int, error) {
+	query := `
+SELECT COUNT(*) FROM rooms
+WHERE hotel_id = $1 AND type = $2 AND name = $3
+`
+
+	var count int
+	err := r.db.QueryRow(ctx, query, hotelID, roomType, name).Scan(&count)
+	if err != nil {
+		return 0, helper.MapError(err)
+	}
+
+	return count, nil
+}
+
+func (r *roomRepo) UpdateRoomQuantity(ctx context.Context, hotelID, roomType, name string, quantity int) error {
+	// Update quantity by adding/subtracting from existing rooms with same name, type and hotel
+	query := `
+UPDATE rooms SET
+quantity = $4,
+updated_at = $5
+WHERE hotel_id = $1 AND type = $2 AND name = $3
+`
+
+	_, err := r.db.Exec(ctx, query, hotelID, roomType, name, quantity, time.Now())
+	if err != nil {
+		return helper.MapError(err)
+	}
+
+	return nil
 }
 
 func (r *roomRepo) UpdateAmenities(ctx context.Context, id string, amenities []models.HighlightedAmenity, amenityCategories string, amenityCount int, recommendationCoef float64) error {

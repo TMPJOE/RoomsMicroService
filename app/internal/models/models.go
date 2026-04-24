@@ -36,7 +36,6 @@ type HighlightedAmenity struct {
 
 // CreateRoomRequest represents the request to create a room
 type CreateRoomRequest struct {
-	HotelID              string                    `json:"hotel_id" validate:"required"`
 	Name                 string                    `json:"name" validate:"required"`
 	Type                 string                    `json:"type" validate:"required,oneof=Single Double Double/Double Suite"`
 	Price                float64                   `json:"price" validate:"required,gt=0"`
@@ -102,23 +101,28 @@ type RoomListResponse struct {
 
 // FilterRoomsRequest represents query parameters for filtering rooms
 type FilterRoomsRequest struct {
-	HotelID     string `validate:"omitempty,uuid"`
-	Type        string `validate:"omitempty,oneof=Single Double Double/Double Suite"`
+	HotelID     string   `validate:"omitempty,uuid"`
+	Type        string   `validate:"omitempty,oneof=Single Double Double/Double Suite"`
 	Types       []string
-	MinCapacity int     `validate:"omitempty,gte=0"`
-	MaxCapacity int     `validate:"omitempty,gte=0"`
-	MinPrice    float64 `validate:"omitempty,gte=0"`
-	MaxPrice    float64 `validate:"omitempty,gte=0"`
-	MinCoef     float64 `validate:"omitempty,gte=0"`
-	MaxCoef     float64 `validate:"omitempty,gte=0"`
-	Limit       int     `validate:"omitempty,gte=1,lte=100"`
-	Offset      int     `validate:"omitempty,gte=0"`
+	MinCapacity int      `validate:"omitempty,gte=0"`
+	MaxCapacity int      `validate:"omitempty,gte=0"`
+	MinPrice    float64  `validate:"omitempty,gte=0"`
+	MaxPrice    float64  `validate:"omitempty,gte=0"`
+	MinCoef     float64  `validate:"omitempty,gte=0"`
+	MaxCoef     float64  `validate:"omitempty,gte=0"`
+	Limit       int      `validate:"omitempty,gte=1,lte=100"`
+	Offset      int      `validate:"omitempty,gte=0"`
 }
 
-// AvailabilityRequest represents request for checking room availability
-type AvailabilityRequest struct {
-	HotelID  string    `json:"hotel_id" validate:"required,uuid"`
-	CheckIn  time.Time `json:"check_in" validate:"required"`
-	CheckOut time.Time `json:"check_out" validate:"required"`
-	Quantity int       `json:"quantity" validate:"required,gt=0"`
+// AvailabilityResponse represents response for room availability check
+type AvailabilityResponse struct {
+	Available bool `json:"available"`
+	Count     int  `json:"count"`
+}
+
+// FileUpload represents a file uploaded via multipart form
+type FileUpload struct {
+	Filename    string
+	Content     []byte
+	ContentType string
 }

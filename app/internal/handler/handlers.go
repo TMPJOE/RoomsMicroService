@@ -5,6 +5,7 @@ package handler
 
 import (
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -52,34 +53,118 @@ func (h *Handler) readinessCheck(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// CreateRoom handles room creation
+// CreateRoom handles room creation with multipart form data support
 func (h *Handler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 	claims := GetClaimsFromContext(r.Context())
-	if claims == nil || claims.UserID == "" {
+	if claims == nil {
 		helper.RespondError(w, http.StatusUnauthorized, helper.ErrUnauthorized.Error())
 		return
 	}
-
-	var req models.CreateRoomRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		helper.RespondError(w, http.StatusBadRequest, helper.ErrBadRequest.Error())
+	if !strings.EqualFold(claims.UserType, "admin") {
+		helper.RespondError(w, http.StatusForbidden, "your account does not have admin privileges")
 		return
 	}
 
-	room, err := h.s.CreateRoom(r.Context(), &req, req.HotelID)
-	if err != nil {
-		h.l.Error("failed to create room", "error", err)
-		if err == helper.ErrValidation {
-			helper.RespondError(w, http.StatusBadRequest, err.Error())
+	hotelID := r.PathValue("hotel_id")
+	if hotelID == "" {
+		helper.RespondError(w, http.StatusBadRequest, "hotel ID is required")
+		return
+	}
+
+	var req *models.CreateRoomRequest
+	var files []models.FileUpload
+
+	contentType := r.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			helper.RespondError(w, http.StatusBadRequest, "failed to parse multipart form")
 			return
 		}
+
+		req = &models.CreateRoomRequest{
+			Name:            r.FormValue("name"),
+			Type:            r.FormValue("type"),
+			Description:     r.FormValue("description"),
+			SpaceInfo:       r.FormValue("space_info"),
+			BedDistribution: r.FormValue("bed_distribution"),
+			AmenityCategories: r.FormValue("amenity_categories"),
+		}
+
+		if priceStr := r.FormValue("price"); priceStr != "" {
+			if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
+				req.Price = price
+			}
+		}
+		if capacityStr := r.FormValue("capacity"); capacityStr != "" {
+			if capacity, err := strconv.Atoi(capacityStr); err == nil {
+				req.Capacity = capacity
+			}
+		}
+		if quantityStr := r.FormValue("quantity"); quantityStr != "" {
+			if quantity, err := strconv.Atoi(quantityStr); err == nil {
+				req.Quantity = quantity
+			}
+		}
+
+		// Parse highlighted amenities from form if provided
+		if amenitiesStr := r.FormValue("highlighted_amenities"); amenitiesStr != "" {
+			json.Unmarshal([]byte(amenitiesStr), &req.HighlightedAmenities)
+		}
+
+		// Extract files
+		if r.MultipartForm != nil {
+			for _, fileHeaders := range r.MultipartForm.File {
+				for _, header := range fileHeaders {
+					file, err := header.Open()
+					if err != nil {
+						h.l.Error("failed to open uploaded file", "error", err)
+						helper.RespondError(w, http.StatusBadRequest, "failed to open uploaded file")
+						return
+					}
+					defer file.Close()
+
+					content := make([]byte, header.Size)
+					if _, err := io.ReadFull(file, content); err != nil {
+						h.l.Error("failed to read uploaded file", "error", err)
+						helper.RespondError(w, http.StatusBadRequest, "failed to read uploaded file")
+						return
+					}
+
+					files = append(files, models.FileUpload{
+						Filename:    header.Filename,
+						Content:     content,
+						ContentType: header.Header.Get("Content-Type"),
+					})
+				}
+			}
+		}
+	} else {
+		req = &models.CreateRoomRequest{}
+		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+			helper.RespondError(w, http.StatusBadRequest, helper.ErrBadRequest.Error())
+			return
+		}
+	}
+
+	// Validate required fields
+	if req.Name == "" || req.Type == "" || req.Price <= 0 || req.Capacity <= 0 {
+		helper.RespondError(w, http.StatusBadRequest, "name, type, price, and capacity are required")
+		return
+	}
+
+	// Default quantity to 1 if not provided
+	if req.Quantity <= 0 {
+		req.Quantity = 1
+	}
+
+	rooms, err := h.s.CreateRooms(r.Context(), req, hotelID, files)
+	if err != nil {
+		h.l.Error("failed to create rooms", "error", err)
 		helper.RespondError(w, http.StatusInternalServerError, helper.ErrInternalServer.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(room)
+	helper.RespondJSON(w, http.StatusCreated, rooms)
 }
 
 // GetRoom handles getting a room by ID
@@ -105,7 +190,7 @@ func (h *Handler) GetRoom(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(room)
 }
 
-// UpdateRoom handles room updates
+// UpdateRoom handles room updates with multipart form data support
 func (h *Handler) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -113,26 +198,111 @@ func (h *Handler) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	hotelID := r.PathValue("hotel_id")
+	if hotelID == "" {
+		helper.RespondError(w, http.StatusBadRequest, "hotel ID is required")
+		return
+	}
+
 	claims := GetClaimsFromContext(r.Context())
-	if claims == nil || claims.UserID == "" {
+	if claims == nil {
 		helper.RespondError(w, http.StatusUnauthorized, helper.ErrUnauthorized.Error())
 		return
 	}
-
-	var req models.UpdateRoomRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		helper.RespondError(w, http.StatusBadRequest, helper.ErrBadRequest.Error())
+	if !strings.EqualFold(claims.UserType, "admin") {
+		helper.RespondError(w, http.StatusForbidden, "your account does not have admin privileges")
 		return
 	}
 
-	room, err := h.s.UpdateRoom(r.Context(), id, &req, claims.UserID)
+	var req *models.UpdateRoomRequest
+	var files []models.FileUpload
+
+	contentType := r.Header.Get("Content-Type")
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			helper.RespondError(w, http.StatusBadRequest, "failed to parse multipart form")
+			return
+		}
+
+		req = &models.UpdateRoomRequest{}
+		if name := r.FormValue("name"); name != "" {
+			req.Name = name
+		}
+		if roomType := r.FormValue("type"); roomType != "" {
+			req.Type = roomType
+		}
+		if desc := r.FormValue("description"); desc != "" {
+			req.Description = desc
+		}
+		if spaceInfo := r.FormValue("space_info"); spaceInfo != "" {
+			req.SpaceInfo = spaceInfo
+		}
+		if bedDist := r.FormValue("bed_distribution"); bedDist != "" {
+			req.BedDistribution = bedDist
+		}
+		if amenityCat := r.FormValue("amenity_categories"); amenityCat != "" {
+			req.AmenityCategories = amenityCat
+		}
+		if priceStr := r.FormValue("price"); priceStr != "" {
+			if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
+				req.Price = price
+			}
+		}
+		if capacityStr := r.FormValue("capacity"); capacityStr != "" {
+			if capacity, err := strconv.Atoi(capacityStr); err == nil {
+				req.Capacity = capacity
+			}
+		}
+		if quantityStr := r.FormValue("quantity"); quantityStr != "" {
+			if quantity, err := strconv.Atoi(quantityStr); err == nil {
+				req.Quantity = quantity
+			}
+		}
+
+		// Parse highlighted amenities from form if provided
+		if amenitiesStr := r.FormValue("highlighted_amenities"); amenitiesStr != "" {
+			json.Unmarshal([]byte(amenitiesStr), &req.HighlightedAmenities)
+		}
+
+		// Extract files
+		if r.MultipartForm != nil {
+			for _, fileHeaders := range r.MultipartForm.File {
+				for _, header := range fileHeaders {
+					file, err := header.Open()
+					if err != nil {
+						h.l.Error("failed to open uploaded file", "error", err)
+						helper.RespondError(w, http.StatusBadRequest, "failed to open uploaded file")
+						return
+					}
+					defer file.Close()
+
+					content := make([]byte, header.Size)
+					if _, err := io.ReadFull(file, content); err != nil {
+						h.l.Error("failed to read uploaded file", "error", err)
+						helper.RespondError(w, http.StatusBadRequest, "failed to read uploaded file")
+						return
+					}
+
+					files = append(files, models.FileUpload{
+						Filename:    header.Filename,
+						Content:     content,
+						ContentType: header.Header.Get("Content-Type"),
+					})
+				}
+			}
+		}
+	} else {
+		req = &models.UpdateRoomRequest{}
+		if err := json.NewDecoder(r.Body).Decode(req); err != nil {
+			helper.RespondError(w, http.StatusBadRequest, helper.ErrBadRequest.Error())
+			return
+		}
+	}
+
+	room, err := h.s.UpdateRoom(r.Context(), id, req, hotelID, files)
 	if err != nil {
 		if err == helper.ErrRecordNotFound {
 			helper.RespondError(w, http.StatusNotFound, helper.ErrRecordNotFound.Error())
-			return
-		}
-		if err == helper.ErrPermissionDenied {
-			helper.RespondError(w, http.StatusForbidden, helper.ErrPermissionDenied.Error())
 			return
 		}
 		h.l.Error("failed to update room", "id", id, "error", err)
@@ -152,20 +322,26 @@ func (h *Handler) DeleteRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	claims := GetClaimsFromContext(r.Context())
-	if claims == nil || claims.UserID == "" {
-		helper.RespondError(w, http.StatusUnauthorized, helper.ErrUnauthorized.Error())
+	hotelID := r.PathValue("hotel_id")
+	if hotelID == "" {
+		helper.RespondError(w, http.StatusBadRequest, "hotel ID is required")
 		return
 	}
 
-	err := h.s.DeleteRoom(r.Context(), id, claims.UserID)
+	claims := GetClaimsFromContext(r.Context())
+	if claims == nil {
+		helper.RespondError(w, http.StatusUnauthorized, helper.ErrUnauthorized.Error())
+		return
+	}
+	if !strings.EqualFold(claims.UserType, "admin") {
+		helper.RespondError(w, http.StatusForbidden, "your account does not have admin privileges")
+		return
+	}
+
+	err := h.s.DeleteRoom(r.Context(), id, hotelID)
 	if err != nil {
 		if err == helper.ErrRecordNotFound {
 			helper.RespondError(w, http.StatusNotFound, helper.ErrRecordNotFound.Error())
-			return
-		}
-		if err == helper.ErrPermissionDenied {
-			helper.RespondError(w, http.StatusForbidden, helper.ErrPermissionDenied.Error())
 			return
 		}
 		h.l.Error("failed to delete room", "id", id, "error", err)
@@ -178,8 +354,10 @@ func (h *Handler) DeleteRoom(w http.ResponseWriter, r *http.Request) {
 
 // ListRooms handles listing rooms with filters
 func (h *Handler) ListRooms(w http.ResponseWriter, r *http.Request) {
+	hotelID := r.URL.Query().Get("hotel_id")
+
 	filter := &models.FilterRoomsRequest{
-		HotelID:     r.URL.Query().Get("hotel_id"),
+		HotelID:     hotelID,
 		Type:        r.URL.Query().Get("type"),
 		MinCapacity: parseInt(r.URL.Query().Get("min_capacity")),
 		MaxCapacity: parseInt(r.URL.Query().Get("max_capacity")),
@@ -222,46 +400,7 @@ func (h *Handler) ListRoomsByHotel(w http.ResponseWriter, r *http.Request) {
 
 	rooms, err := h.s.ListRoomsByHotel(r.Context(), hotelID)
 	if err != nil {
-		if err == helper.ErrRecordNotFound {
-			h.l.Warn("hotel not found, returning empty rooms list", "hotel_id", hotelID)
-			rooms = []models.Room{}
-		} else {
-			h.l.Error("failed to list rooms by hotel", "hotel_id", hotelID, "error", err)
-			helper.RespondError(w, http.StatusInternalServerError, helper.ErrInternalServer.Error())
-			return
-		}
-	}
-
-	response := models.RoomListResponse{
-		Rooms:      convertToRoomResponse(rooms),
-		TotalCount: len(rooms),
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-// CheckAvailability handles checking room availability
-func (h *Handler) CheckAvailability(w http.ResponseWriter, r *http.Request) {
-	hotelID := r.URL.Query().Get("hotel_id")
-	checkIn := r.URL.Query().Get("check_in")
-	checkOut := r.URL.Query().Get("check_out")
-	quantityStr := r.URL.Query().Get("quantity")
-
-	if hotelID == "" || checkIn == "" || checkOut == "" || quantityStr == "" {
-		helper.RespondError(w, http.StatusBadRequest, "missing required parameters: hotel_id, check_in, check_out, quantity")
-		return
-	}
-
-	quantity, err := strconv.Atoi(quantityStr)
-	if err != nil {
-		helper.RespondError(w, http.StatusBadRequest, "quantity must be a number")
-		return
-	}
-
-	rooms, err := h.s.CheckAvailability(r.Context(), hotelID, checkIn, checkOut, quantity)
-	if err != nil {
-		h.l.Error("failed to check availability", "hotel_id", hotelID, "error", err)
+		h.l.Error("failed to list rooms by hotel", "hotel_id", hotelID, "error", err)
 		helper.RespondError(w, http.StatusInternalServerError, helper.ErrInternalServer.Error())
 		return
 	}
@@ -275,17 +414,64 @@ func (h *Handler) CheckAvailability(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
+// CheckAvailability handles checking room availability by type and name
+func (h *Handler) CheckAvailability(w http.ResponseWriter, r *http.Request) {
+	hotelID := r.PathValue("hotel_id")
+	if hotelID == "" {
+		helper.RespondError(w, http.StatusBadRequest, "hotel ID is required")
+		return
+	}
+
+	roomType := r.URL.Query().Get("type")
+	if roomType == "" {
+		helper.RespondError(w, http.StatusBadRequest, "room type is required")
+		return
+	}
+
+	name := r.URL.Query().Get("name")
+	if name == "" {
+		helper.RespondError(w, http.StatusBadRequest, "room name is required")
+		return
+	}
+
+	response, err := h.s.CheckAvailability(r.Context(), hotelID, roomType, name)
+	if err != nil {
+		h.l.Error("failed to check availability", "hotel_id", hotelID, "error", err)
+		helper.RespondError(w, http.StatusInternalServerError, helper.ErrInternalServer.Error())
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // UpdateRoomQuantity handles updating room quantity
 func (h *Handler) UpdateRoomQuantity(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
-	if id == "" {
-		helper.RespondError(w, http.StatusBadRequest, "room ID is required")
+	hotelID := r.PathValue("hotel_id")
+	if hotelID == "" {
+		helper.RespondError(w, http.StatusBadRequest, "hotel ID is required")
 		return
 	}
 
 	claims := GetClaimsFromContext(r.Context())
-	if claims == nil || claims.UserID == "" {
+	if claims == nil {
 		helper.RespondError(w, http.StatusUnauthorized, helper.ErrUnauthorized.Error())
+		return
+	}
+	if !strings.EqualFold(claims.UserType, "admin") {
+		helper.RespondError(w, http.StatusForbidden, "your account does not have admin privileges")
+		return
+	}
+
+	roomType := r.PathValue("type")
+	if roomType == "" {
+		helper.RespondError(w, http.StatusBadRequest, "room type is required")
+		return
+	}
+
+	name := r.PathValue("name")
+	if name == "" {
+		helper.RespondError(w, http.StatusBadRequest, "room name is required")
 		return
 	}
 
@@ -295,27 +481,14 @@ func (h *Handler) UpdateRoomQuantity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	updateReq := &models.UpdateRoomRequest{
-		Quantity: req.Quantity,
-	}
-
-	room, err := h.s.UpdateRoom(r.Context(), id, updateReq, claims.UserID)
+	err := h.s.UpdateRoomQuantity(r.Context(), hotelID, roomType, name, req.Quantity)
 	if err != nil {
-		if err == helper.ErrRecordNotFound {
-			helper.RespondError(w, http.StatusNotFound, helper.ErrRecordNotFound.Error())
-			return
-		}
-		if err == helper.ErrPermissionDenied {
-			helper.RespondError(w, http.StatusForbidden, helper.ErrPermissionDenied.Error())
-			return
-		}
-		h.l.Error("failed to update room quantity", "id", id, "error", err)
+		h.l.Error("failed to update room quantity", "hotel_id", hotelID, "error", err)
 		helper.RespondError(w, http.StatusInternalServerError, helper.ErrInternalServer.Error())
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(room)
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // Helper functions

@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"hotel.com/app/internal/client"
 	"hotel.com/app/internal/config"
 	"hotel.com/app/internal/database"
 	"hotel.com/app/internal/handler"
@@ -56,8 +57,11 @@ func main() {
 	//repo creation
 	roomRepo := repo.NewRoomRepo(db)
 
+	//media client creation
+	mediaClient := client.NewMediaClientFromEnv()
+
 	//service creation
-	svc := service.New(l, roomRepo)
+	svc := service.New(l, roomRepo, mediaClient)
 
 	// handler creation
 	jwtConfig := handler.JWTConfig{

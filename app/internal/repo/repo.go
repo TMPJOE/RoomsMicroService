@@ -14,6 +14,7 @@ type RoomRepository interface {
 	DbPing() error
 	// CRUD operations
 	CreateRoom(ctx context.Context, room *models.Room) error
+	CreateRooms(ctx context.Context, rooms []*models.Room) error
 	GetRoomByID(ctx context.Context, id string) (*models.Room, error)
 	UpdateRoom(ctx context.Context, room *models.Room) error
 	DeleteRoom(ctx context.Context, id string) error
@@ -25,6 +26,10 @@ type RoomRepository interface {
 
 	// Availability
 	CheckAvailability(ctx context.Context, hotelID string, checkIn, checkOut string, quantity int) ([]models.Room, error)
+	CheckAvailabilityByType(ctx context.Context, hotelID, roomType, name string) (int, error)
+
+	// Quantity operations
+	UpdateRoomQuantity(ctx context.Context, hotelID, roomType, name string, quantity int) error
 
 	// Amenity operations
 	UpdateAmenities(ctx context.Context, id string, amenities []models.HighlightedAmenity, amenityCategories string, amenityCount int, recommendationCoef float64) error

@@ -37,10 +37,10 @@ func (h *Handler) NewServerMux(rateLimiter *RateLimiter) *chi.Mux {
 		r.Get("/ready", h.readinessCheck)
 
 		// Room routes - public read access
-		r.Get("/rooms/available", h.CheckAvailability)
 		r.Get("/rooms", h.ListRooms)
 		r.Get("/rooms/{id}", h.GetRoom)
-		r.Get("/hotels/{hotel_id}/rooms", h.ListRoomsByHotel)
+		r.Get("/rooms/list/{hotel_id}", h.ListRoomsByHotel)
+		r.Get("/rooms/available/{hotel_id}", h.CheckAvailability)
 	})
 
 	// Protected routes - require JWT authentication
@@ -48,10 +48,10 @@ func (h *Handler) NewServerMux(rateLimiter *RateLimiter) *chi.Mux {
 		r.Use(h.jwtAuth.Middleware()) // JWT authentication middleware
 
 		// Room routes - admin write access
-		r.Post("/rooms", h.CreateRoom)
-		r.Put("/rooms/{id}", h.UpdateRoom)
-		r.Delete("/rooms/{id}", h.DeleteRoom)
-		r.Patch("/rooms/{id}/quantity", h.UpdateRoomQuantity)
+		r.Post("/hotels/{hotel_id}/rooms", h.CreateRoom)
+		r.Put("/hotels/{hotel_id}/rooms/{id}", h.UpdateRoom)
+		r.Delete("/hotels/{hotel_id}/rooms/{id}", h.DeleteRoom)
+		r.Patch("/hotels/{hotel_id}/rooms/{type}/{name}/quantity", h.UpdateRoomQuantity)
 	})
 
 	return r
