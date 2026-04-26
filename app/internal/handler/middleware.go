@@ -187,11 +187,10 @@ func CacheControl(maxAge int) func(http.Handler) http.Handler {
 	}
 }
 
-// JWTAuthenticator handles JWT authentication
+// JWTAuthenticator handles JWT authentication (validation only)
 type JWTAuthenticator struct {
-	config     JWTConfig
-	publicKey  map[string]*rsa.PublicKey
-	privateKey *rsa.PrivateKey
+	config    JWTConfig
+	publicKey map[string]*rsa.PublicKey
 }
 
 // NewJWTAuthenticator creates a new JWT authenticator

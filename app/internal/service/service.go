@@ -81,9 +81,12 @@ func (s *roomService) CreateRooms(ctx context.Context, req *models.CreateRoomReq
 	// Create room objects
 	rooms := make([]*models.Room, req.Quantity)
 	for i := 0; i < req.Quantity; i++ {
-		roomID := uuid.New().String()
+		roomID, err := uuid.NewV7()
+		if err != nil {
+			return nil, helper.ErrInternalServer
+		}
 		rooms[i] = &models.Room{
-			ID:                   roomID,
+			ID: roomID.String(),
 			HotelID:              hotelID,
 			Name:                 req.Name,
 			Type:                 req.Type,
