@@ -23,11 +23,7 @@ type Handler struct {
 }
 
 func New(s service.Service, l *slog.Logger, jwtAuth *JWTAuthenticator) *Handler {
-	return &Handler{
-		s:       s,
-		l:       l,
-		jwtAuth: jwtAuth,
-	}
+	return &Handler{s: s, l: l, jwtAuth: jwtAuth}
 }
 
 func (h *Handler) healthCheck(w http.ResponseWriter, r *http.Request) {
@@ -47,13 +43,10 @@ func (h *Handler) readinessCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{
-		"status": "ready",
-		"db":     "ok",
-	})
+	json.NewEncoder(w).Encode(map[string]string{"status": "ready", "db": "ok"})
 }
 
-// CreateRoom handles room creation with multipart form data support
+// CreateRoom handles room creation with multipart form data support.
 func (h *Handler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 	claims := GetClaimsFromContext(r.Context())
 	if claims == nil {
@@ -87,9 +80,7 @@ func (h *Handler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 			Description:     r.FormValue("description"),
 			SpaceInfo:       r.FormValue("space_info"),
 			BedDistribution: r.FormValue("bed_distribution"),
-			AmenityCategories: r.FormValue("amenity_categories"),
 		}
-
 		if priceStr := r.FormValue("price"); priceStr != "" {
 			if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
 				req.Price = price
@@ -105,13 +96,16 @@ func (h *Handler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 				req.Quantity = quantity
 			}
 		}
-
-		// Parse highlighted amenities from form if provided
+		// Parse highlighted amenities JSON array from form field
 		if amenitiesStr := r.FormValue("highlighted_amenities"); amenitiesStr != "" {
 			json.Unmarshal([]byte(amenitiesStr), &req.HighlightedAmenities)
 		}
+		// Parse amenity categories JSON array from form field
+		if categoriesStr := r.FormValue("amenity_categories"); categoriesStr != "" {
+			json.Unmarshal([]byte(categoriesStr), &req.AmenityCategories)
+		}
 
-		// Extract files
+		// Extract uploaded files
 		if r.MultipartForm != nil {
 			for _, fileHeaders := range r.MultipartForm.File {
 				for _, header := range fileHeaders {
@@ -129,7 +123,6 @@ func (h *Handler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 						helper.RespondError(w, http.StatusBadRequest, "failed to read uploaded file")
 						return
 					}
-
 					files = append(files, models.FileUpload{
 						Filename:    header.Filename,
 						Content:     content,
@@ -151,8 +144,6 @@ func (h *Handler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 		helper.RespondError(w, http.StatusBadRequest, "name, type, price, and capacity are required")
 		return
 	}
-
-	// Default quantity to 1 if not provided
 	if req.Quantity <= 0 {
 		req.Quantity = 1
 	}
@@ -167,7 +158,7 @@ func (h *Handler) CreateRoom(w http.ResponseWriter, r *http.Request) {
 	helper.RespondJSON(w, http.StatusCreated, rooms)
 }
 
-// GetRoom handles getting a room by ID
+// GetRoom handles getting a room by ID.
 func (h *Handler) GetRoom(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
@@ -190,14 +181,13 @@ func (h *Handler) GetRoom(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(room)
 }
 
-// UpdateRoom handles room updates with multipart form data support
+// UpdateRoom handles room updates with multipart form data support.
 func (h *Handler) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		helper.RespondError(w, http.StatusBadRequest, "room ID is required")
 		return
 	}
-
 	hotelID := r.PathValue("hotel_id")
 	if hotelID == "" {
 		helper.RespondError(w, http.StatusBadRequest, "hotel ID is required")
@@ -240,9 +230,6 @@ func (h *Handler) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 		if bedDist := r.FormValue("bed_distribution"); bedDist != "" {
 			req.BedDistribution = bedDist
 		}
-		if amenityCat := r.FormValue("amenity_categories"); amenityCat != "" {
-			req.AmenityCategories = amenityCat
-		}
 		if priceStr := r.FormValue("price"); priceStr != "" {
 			if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
 				req.Price = price
@@ -258,13 +245,13 @@ func (h *Handler) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 				req.Quantity = quantity
 			}
 		}
-
-		// Parse highlighted amenities from form if provided
 		if amenitiesStr := r.FormValue("highlighted_amenities"); amenitiesStr != "" {
 			json.Unmarshal([]byte(amenitiesStr), &req.HighlightedAmenities)
 		}
+		if categoriesStr := r.FormValue("amenity_categories"); categoriesStr != "" {
+			json.Unmarshal([]byte(categoriesStr), &req.AmenityCategories)
+		}
 
-		// Extract files
 		if r.MultipartForm != nil {
 			for _, fileHeaders := range r.MultipartForm.File {
 				for _, header := range fileHeaders {
@@ -282,7 +269,6 @@ func (h *Handler) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 						helper.RespondError(w, http.StatusBadRequest, "failed to read uploaded file")
 						return
 					}
-
 					files = append(files, models.FileUpload{
 						Filename:    header.Filename,
 						Content:     content,
@@ -314,14 +300,13 @@ func (h *Handler) UpdateRoom(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(room)
 }
 
-// DeleteRoom handles room deletion
+// DeleteRoom handles room deletion.
 func (h *Handler) DeleteRoom(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	if id == "" {
 		helper.RespondError(w, http.StatusBadRequest, "room ID is required")
 		return
 	}
-
 	hotelID := r.PathValue("hotel_id")
 	if hotelID == "" {
 		helper.RespondError(w, http.StatusBadRequest, "hotel ID is required")
@@ -338,8 +323,7 @@ func (h *Handler) DeleteRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.s.DeleteRoom(r.Context(), id, hotelID)
-	if err != nil {
+	if err := h.s.DeleteRoom(r.Context(), id, hotelID); err != nil {
 		if err == helper.ErrRecordNotFound {
 			helper.RespondError(w, http.StatusNotFound, helper.ErrRecordNotFound.Error())
 			return
@@ -352,13 +336,14 @@ func (h *Handler) DeleteRoom(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// ListRooms handles listing rooms with filters
+// ListRooms handles listing rooms with filters.
 func (h *Handler) ListRooms(w http.ResponseWriter, r *http.Request) {
 	hotelID := r.URL.Query().Get("hotel_id")
+	typeParam := r.URL.Query().Get("type")
 
 	filter := &models.FilterRoomsRequest{
 		HotelID:     hotelID,
-		Type:        r.URL.Query().Get("type"),
+		Type:        typeParam,
 		MinCapacity: parseInt(r.URL.Query().Get("min_capacity")),
 		MaxCapacity: parseInt(r.URL.Query().Get("max_capacity")),
 		MinPrice:    parseFloat(r.URL.Query().Get("min_price")),
@@ -368,8 +353,6 @@ func (h *Handler) ListRooms(w http.ResponseWriter, r *http.Request) {
 		Limit:       parseIntOrDefault(r.URL.Query().Get("limit"), 20),
 		Offset:      parseIntOrDefault(r.URL.Query().Get("offset"), 0),
 	}
-
-	typeParam := r.URL.Query().Get("type")
 	if typeParam != "" {
 		filter.Types = strings.Split(typeParam, ",")
 	}
@@ -385,12 +368,11 @@ func (h *Handler) ListRooms(w http.ResponseWriter, r *http.Request) {
 		Rooms:      convertToRoomResponse(rooms),
 		TotalCount: total,
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
-// ListRoomsByHotel handles listing rooms by hotel ID
+// ListRoomsByHotel handles listing rooms by hotel ID.
 func (h *Handler) ListRoomsByHotel(w http.ResponseWriter, r *http.Request) {
 	hotelID := r.PathValue("hotel_id")
 	if hotelID == "" {
@@ -409,25 +391,22 @@ func (h *Handler) ListRoomsByHotel(w http.ResponseWriter, r *http.Request) {
 		Rooms:      convertToRoomResponse(rooms),
 		TotalCount: len(rooms),
 	}
-
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
-// CheckAvailability handles checking room availability by type and name
+// CheckAvailability handles checking room availability by type and name.
 func (h *Handler) CheckAvailability(w http.ResponseWriter, r *http.Request) {
 	hotelID := r.PathValue("hotel_id")
 	if hotelID == "" {
 		helper.RespondError(w, http.StatusBadRequest, "hotel ID is required")
 		return
 	}
-
 	roomType := r.URL.Query().Get("type")
 	if roomType == "" {
 		helper.RespondError(w, http.StatusBadRequest, "room type is required")
 		return
 	}
-
 	name := r.URL.Query().Get("name")
 	if name == "" {
 		helper.RespondError(w, http.StatusBadRequest, "room name is required")
@@ -445,7 +424,7 @@ func (h *Handler) CheckAvailability(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(response)
 }
 
-// UpdateRoomQuantity handles updating room quantity
+// UpdateRoomQuantity handles updating room quantity.
 func (h *Handler) UpdateRoomQuantity(w http.ResponseWriter, r *http.Request) {
 	hotelID := r.PathValue("hotel_id")
 	if hotelID == "" {
@@ -468,7 +447,6 @@ func (h *Handler) UpdateRoomQuantity(w http.ResponseWriter, r *http.Request) {
 		helper.RespondError(w, http.StatusBadRequest, "room type is required")
 		return
 	}
-
 	name := r.PathValue("name")
 	if name == "" {
 		helper.RespondError(w, http.StatusBadRequest, "room name is required")
@@ -481,8 +459,7 @@ func (h *Handler) UpdateRoomQuantity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	err := h.s.UpdateRoomQuantity(r.Context(), hotelID, roomType, name, req.Quantity)
-	if err != nil {
+	if err := h.s.UpdateRoomQuantity(r.Context(), hotelID, roomType, name, req.Quantity); err != nil {
 		h.l.Error("failed to update room quantity", "hotel_id", hotelID, "error", err)
 		helper.RespondError(w, http.StatusInternalServerError, helper.ErrInternalServer.Error())
 		return
@@ -491,7 +468,7 @@ func (h *Handler) UpdateRoomQuantity(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// Helper functions
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 func convertToRoomResponse(rooms []models.Room) []models.RoomResponse {
 	response := make([]models.RoomResponse, len(rooms))
@@ -507,10 +484,10 @@ func convertToRoomResponse(rooms []models.Room) []models.RoomResponse {
 			SpaceInfo:            room.SpaceInfo,
 			BedDistribution:      room.BedDistribution,
 			Quantity:             room.Quantity,
-			HighlightedAmenities: room.HighlightedAmenities,
-			AmenityCategories:    room.AmenityCategories,
 			AmenityCount:         room.AmenityCount,
 			RecommendationCoef:   room.RecommendationCoef,
+			HighlightedAmenities: room.HighlightedAmenities,
+			AmenityCategories:    room.AmenityCategories,
 			CreatedAt:            room.CreatedAt,
 			UpdatedAt:            room.UpdatedAt,
 		}

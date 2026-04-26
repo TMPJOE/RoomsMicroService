@@ -9,9 +9,10 @@ import (
 	"hotel.com/app/internal/models"
 )
 
-// RoomRepository defines the interface for room data access
+// RoomRepository defines the interface for room data access.
 type RoomRepository interface {
 	DbPing() error
+
 	// CRUD operations
 	CreateRoom(ctx context.Context, room *models.Room) error
 	CreateRooms(ctx context.Context, rooms []*models.Room) error
@@ -31,8 +32,11 @@ type RoomRepository interface {
 	// Quantity operations
 	UpdateRoomQuantity(ctx context.Context, hotelID, roomType, name string, quantity int) error
 
-	// Amenity operations
-	UpdateAmenities(ctx context.Context, id string, amenities []models.HighlightedAmenity, amenityCategories string, amenityCount int, recommendationCoef float64) error
-}
+	// Highlighted amenity operations (replace-all strategy: delete then insert)
+	UpsertHighlightedAmenities(ctx context.Context, roomID string, amenities []models.HighlightedAmenity) error
+	GetHighlightedAmenitiesByRooms(ctx context.Context, roomIDs []string) (map[string][]models.HighlightedAmenity, error)
 
-//REMEMBER TRANSACTION CODE LOGIC
+	// Amenity category operations (replace-all strategy: delete then insert)
+	UpsertAmenityCategories(ctx context.Context, roomID string, categories []models.AmenityCategory) error
+	GetAmenityCategoriesByRooms(ctx context.Context, roomIDs []string) (map[string][]models.AmenityCategory, error)
+}
