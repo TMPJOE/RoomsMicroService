@@ -16,7 +16,7 @@ func New() *slog.Logger {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		ReplaceAttr: logFormat.ReplaceAttr,
 	})).With(
-		slog.String("service", "blueprint-service"),
+		slog.String("service", "rooms-service"),
 		slog.String("version", "v0.0.1"),
 		slog.String("env", "development"),
 	)
